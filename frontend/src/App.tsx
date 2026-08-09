@@ -48,7 +48,9 @@ interface ChatMessage {
 export default function App() {
   // Configuration State
   const [candidateId, setCandidateId] = useState('priya.sharma@gmail.com');
-  const [backendUrl, setBackendUrl] = useState('http://localhost:5000');
+  const [backendUrl, setBackendUrl] = useState(
+  'https://sales-inbox-task-router-2.onrender.com'
+);
   const [showConfig, setShowConfig] = useState(false);
 
   // Ingestion State
@@ -325,7 +327,7 @@ export default function App() {
                 value={backendUrl}
                 onChange={(e) => setBackendUrl(e.target.value)}
                 className="text-input"
-                placeholder="e.g. http://localhost:5000"
+                placeholder="e.g. https://sales-inbox-task-router-2.onrender.com"
               />
             </div>
           </div>
