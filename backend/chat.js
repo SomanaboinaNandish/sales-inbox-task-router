@@ -1,25 +1,24 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import db from "./db.js";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const apiKey = process.env.XAI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY;
 
 console.log(
-  "Grok key loaded:",
+  "Gemini key loaded:",
   Boolean(apiKey),
   "length:",
   apiKey?.length || 0
 );
 
 if (!apiKey) {
-  throw new Error("XAI_API_KEY is not configured.");
+  throw new Error("GEMINI_API_KEY is not configured.");
 }
 
-const ai = new OpenAI({
-  apiKey,
-  baseURL: "https://api.x.ai/v1"
+const ai = new GoogleGenAI({
+  apiKey
 });
 
 function normalizeCandidateId(candidateId) {
@@ -195,7 +194,7 @@ export async function handleChatQuery(candidateId, query) {
     }
 
     // --------------------------------------------------
-    // Prepare context
+    // Prepare database context
     // --------------------------------------------------
 
     const context = {
@@ -250,7 +249,7 @@ export async function handleChatQuery(candidateId, query) {
     };
 
     // --------------------------------------------------
-    // Grok
+    // Gemini system instruction
     // --------------------------------------------------
 
     const systemInstruction = `
@@ -260,7 +259,7 @@ You answer questions about the Sales Inbox Task Router.
 
 IMPORTANT RULES:
 
-1. Use ONLY the database context provided.
+1. Use ONLY the database context provided by the application.
 2. Never invent information.
 3. Never invent tasks, emails, companies, people, values, dates, or statistics.
 4. If requested information does not exist, clearly say so.
@@ -271,10 +270,12 @@ IMPORTANT RULES:
 9. You cannot reassign tasks.
 10. For counts, use the provided database data.
 11. For money, use INR.
-12. Keep answers concise.
+12. Keep answers concise and useful.
 13. Return valid JSON only.
+14. supporting_data must contain only information derived from the database context.
+15. Do not use example or imaginary data.
 
-Return exactly:
+Return exactly this structure:
 
 {
   "answer": "Natural language answer",
@@ -296,34 +297,32 @@ ${JSON.stringify(
 )}
 `;
 
-    console.log("Calling Grok...");
+    console.log("Calling Gemini...");
+
+    // --------------------------------------------------
+    // Gemini API
+    // --------------------------------------------------
 
     const response =
-      await ai.chat.completions.create({
-        model: "grok-4.5",
+      await ai.models.generateContent({
+        model: "gemini-2.5-flash",
 
-        messages: [
-          {
-            role: "system",
-            content: systemInstruction
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
+        contents: prompt,
 
-        response_format: {
-          type: "json_object"
-        },
+        config: {
+          systemInstruction,
 
-        temperature: 0.1
+          responseMimeType:
+            "application/json",
+
+          temperature: 0.1
+        }
       });
 
-    console.log("Grok response received.");
+    console.log("Gemini response received.");
 
     const responseText =
-      response.choices?.[0]?.message?.content?.trim();
+      response.text?.trim();
 
     if (!responseText) {
       return {
@@ -334,6 +333,10 @@ ${JSON.stringify(
       };
     }
 
+    // --------------------------------------------------
+    // Parse Gemini JSON
+    // --------------------------------------------------
+
     let result;
 
     try {
@@ -341,12 +344,14 @@ ${JSON.stringify(
         JSON.parse(responseText);
     } catch (parseError) {
       console.error(
-        "Grok returned invalid JSON:",
+        "Gemini returned invalid JSON:",
         responseText
       );
 
       return {
-        answer: responseText,
+        answer:
+          responseText,
+
         supporting_data: {}
       };
     }
@@ -383,16 +388,22 @@ ${JSON.stringify(
     );
 
     console.error(
+      "Cause:",
+      error.cause
+    );
+
+    console.error(
       "================================"
     );
 
+    // Gemini quota error
     if (
       error?.status === 429 ||
       error?.code === 429
     ) {
       return {
         answer:
-          "AI usage limit reached. Please try again later.",
+          "Gemini API usage limit reached. Please try again later.",
 
         supporting_data: {
           error:
